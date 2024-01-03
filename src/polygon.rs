@@ -43,18 +43,6 @@ use std::collections::HashMap;
 use Direction::*;
 use bevy::utils::hashbrown::HashSet;
 
-impl Direction {
-    fn from_int(dir: usize) -> Direction {
-        match dir {
-            0 => North,
-            1 => South,
-            2 => East,
-            3 => West,
-            _ => panic!("Invalid direction")
-        }
-    }
-}
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 struct Position {
     x: usize,
@@ -123,7 +111,6 @@ struct BorderMap {
     colors: Vec<Vec<(u8, u8, u8)>>,
     borders: Vec<Vec<[bool; 4]>>,
     border_set: HashSet<Position>,
-    curr_spot: (usize, usize),
 }
 
 impl BorderMap {
@@ -132,7 +119,6 @@ impl BorderMap {
             colors: vec![vec![(0, 0, 0); height]; width],
             borders: vec![vec![[false; 4]; height]; width],
             border_set: HashSet::new(),
-            curr_spot: (0, 0),
         }
     }
 
