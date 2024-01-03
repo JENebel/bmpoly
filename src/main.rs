@@ -8,6 +8,7 @@ use bevy::render::mesh::{self, PrimitiveTopology};
 
 const FILL: bool = true;
 const OUTLINE: bool = true;
+const VERTICES: bool = false;
 
 fn main() {
     //std::hint::black_box(load_polygons("assets/provinces.bmp"));
@@ -58,7 +59,7 @@ fn setup (
             let mut indices: Vec<u32> = (0..poly.border_vertices.len() as u32).collect();
             indices.push(0);
             mesh.set_indices(Some(mesh::Indices::U32(indices)));
-            vertices += poly.border_vertices.len();
+            if FILL == false { vertices += poly.border_vertices.len() }
             mesh.duplicate_vertices();
 
             let mat = materials.add(Color::GRAY.into());
@@ -68,6 +69,20 @@ fn setup (
                 transform: Transform::from_translation(Vec3::new(0.0, 0.0, 1.0)),
                 ..default()
             });
+        }
+
+        if VERTICES {
+            for vertex in poly.border_vertices {
+                commands.spawn(SpriteBundle {
+                    sprite: Sprite {
+                        color: Color::RED,
+                        custom_size: Some(Vec2::new(0.3, 0.3)),
+                        ..default()
+                    },
+                    transform: Transform::from_translation(Vec3::new(vertex[0], vertex[1], 2.)),
+                    ..default()
+                });
+            }
         }
     }
 

@@ -38,10 +38,9 @@ enum Direction {
     West = 3,
 }
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque, HashSet};
 
 use Direction::*;
-use bevy::utils::hashbrown::HashSet;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 struct Position {
@@ -104,6 +103,7 @@ enum Turn {
     Left,
     Right,
     Straight,
+    Corner,
 }
 
 #[derive(Debug, Clone)]
@@ -218,6 +218,33 @@ impl BorderMap {
         None
     }
 
+    fn prune_vertices(vertices: &mut Vec<(f32, f32)>, queue: &mut VecDeque<Turn>) {
+        // Straight lines
+        if queue.len() >= 2 && queue[0] == Turn::Straight && queue[1] == Turn::Straight {
+            vertices.pop();
+        } // 986862 -> 746658
+
+        // Diagonals
+        if queue.len() >= 2 && queue[0] == Turn::Left && queue[1] == Turn::Right {
+            vertices.pop();
+        } 
+        if queue.len() >= 2 && queue[0] == Turn::Right && queue[1] == Turn::Left {
+            vertices.pop();
+        } // 746658 -> 435539
+
+        // Corners
+        if queue.len() >= 3 && queue[0] == Turn::Corner && queue[2] == Turn::Straight {
+            let corner = vertices.pop();
+            vertices.pop();
+            vertices.push(corner.unwrap());
+        }
+        if queue.len() >= 3 && queue[0] == Turn::Straight && queue[1] == Turn::Corner { // Corner added before Left turn
+            vertices.pop();
+        } // 435539 -> 417005
+
+        // Maybe need a more complex algorithm for this. This is a bit of a hack
+    }
+
     fn pop_polygon(&mut self) -> Option<(RawPolygon, (u8, u8, u8))> {
         let origin = match self.get_some_starting_point() {
             Some(p) => p,
@@ -231,29 +258,36 @@ impl BorderMap {
 
         //println!("Starting at {:?}", origin);
 
+        let mut queue = VecDeque::new();
+
         let (mut lefts, mut rights) = (0, 0); 
         let mut pos = origin;
         while let Some((npos, vertex, corner, turn)) = self.pop_next_border(&pos) {
-            if let Some(corner) = corner {
-                vertices.push((corner.0, corner.1));
-            }
-
-            //println!("{:?},     \t Pos: {:?}", turn, npos);
             match turn {
                 Turn::Left => lefts += 1,
                 Turn::Right => rights += 1,
                 Turn::Straight => (),
+                _ => (),
             }
+
+            while queue.len() > 4 {
+                queue.pop_back();
+            }
+
+            queue.push_front(turn);
+            if let Some(corner) = corner {
+                vertices.push((corner.0, corner.1));
+                queue.push_front(Turn::Corner)
+            }
+
+            Self::prune_vertices(&mut vertices, &mut queue);
 
             vertices.push((vertex.0, vertex.1));
             pos = npos;
         }
 
-        //println!("Lefts: {}, Rights: {}", lefts, rights);
-
-        //println!("Found polygon: {:?}", vertices.len());
         let is_hole = rights > lefts;
-        if is_hole { vertices.reverse() }
+        //if is_hole { vertices.reverse() }
         let dims = (self.borders.len(), self.borders[0].len());
         return Some((RawPolygon { is_hole, verticies: vertices, point_inside: origin.move_fwd(dims), holes: Vec::new() }, color));
     }
