@@ -1,6 +1,7 @@
 pub struct Polygon {
     pub color: (f32, f32, f32),
-    pub verticies: Vec<[f32; 3]>,
+    pub vertices: Vec<[f32; 3]>,
+    pub border_vertices: Vec<[f32; 3]>,
     pub indicies: Vec<u32>,
 }
 
@@ -26,7 +27,8 @@ impl Polygon {
         edge_indicies.push(0);
 
         Polygon {
-            verticies,
+            vertices: verticies,
+            border_vertices: raw.verticies.iter().map(|(x, y)| [*x, *y, 0.0]).collect(),
             color,
             indicies: triangles.into_iter().map(|i| i as u32).collect()
         }
@@ -366,8 +368,8 @@ fn finish_polygons(polygons: HashMap<(u8, u8, u8), Vec<RawPolygon>>) -> Vec<Poly
     finished_polygons
 }
 
-pub fn load_polygons() -> Vec<Polygon> {
-    let mut borders = BorderMap::load("assets/provinces.bmp");
+pub fn load_polygons(path: &str) -> Vec<Polygon> {
+    let mut borders = BorderMap::load(path);
     let mut raw_polys: HashMap<(u8, u8, u8), Vec<RawPolygon>> = HashMap::new();
 
     let time_before = std::time::Instant::now();
