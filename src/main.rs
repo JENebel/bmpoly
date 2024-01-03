@@ -10,6 +10,7 @@ const FILL: bool = true;
 const OUTLINE: bool = true;
 
 fn main() {
+    //std::hint::black_box(load_polygons("assets/provinces.bmp"));
     App::new()
         .insert_resource(Msaa::Sample4)
         .add_plugins((DefaultPlugins, PanCamPlugin::default()))
@@ -22,10 +23,12 @@ fn setup (
     mut meshes: ResMut<Assets<Mesh>>, 
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let polys = load_polygons("assets/dktst.bmp");
+    let before = std::time::Instant::now();
+    let polys = load_polygons("assets/provinces.bmp");
 
     let mut vertices = 0;
 
+    let before_meshes = std::time::Instant::now();
     for poly in polys {
         if FILL {
             let mut mesh = Mesh::new(PrimitiveTopology::TriangleList);
@@ -68,6 +71,9 @@ fn setup (
         }
     }
 
+    println!("Created meshes in {}ms", before_meshes.elapsed().as_millis());
+
+    println!("Total time: {}ms", before.elapsed().as_millis());
     println!("Total vertices: {}", vertices);
     
     commands.spawn(DirectionalLightBundle {

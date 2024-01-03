@@ -18,11 +18,6 @@ impl Polygon {
 
         let verticies: Vec<[f32; 3]> = vertices.chunks(2).map(|chunk| [chunk[0], chunk[1], 0.0]).collect();
 
-        /*for i in 0..points.len() {
-            println!("{}: {:?}", i, points[i]);
-        }
-        println!("{:?}", triangles);*/
-
         let mut edge_indicies: Vec<u32> = (0..verticies.len() as u32).collect();
         edge_indicies.push(0);
 
@@ -35,7 +30,7 @@ impl Polygon {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 enum Direction {
     North = 0,
     South = 1,
@@ -46,6 +41,7 @@ enum Direction {
 use std::collections::HashMap;
 
 use Direction::*;
+use bevy::utils::hashbrown::HashSet;
 
 impl Direction {
     fn from_int(dir: usize) -> Direction {
@@ -59,7 +55,7 @@ impl Direction {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 struct Position {
     x: usize,
     y: usize,
@@ -126,13 +122,17 @@ enum Turn {
 struct BorderMap {
     colors: Vec<Vec<(u8, u8, u8)>>,
     borders: Vec<Vec<[bool; 4]>>,
+    border_set: HashSet<Position>,
+    curr_spot: (usize, usize),
 }
 
 impl BorderMap {
     fn new(width: usize, height: usize) -> BorderMap {
         BorderMap {
             colors: vec![vec![(0, 0, 0); height]; width],
-            borders: vec![vec![[false; 4]; height]; width]
+            borders: vec![vec![[false; 4]; height]; width],
+            border_set: HashSet::new(),
+            curr_spot: (0, 0),
         }
     }
 
@@ -146,6 +146,7 @@ impl BorderMap {
 
     fn remove(&mut self, pos: &Position) {
         self.borders[pos.x][pos.y][pos.dir as usize] = false;
+        self.border_set.remove(pos);
     }
 
     fn insert_clr(&mut self, (x, y): (usize, usize), clr: (u8, u8, u8)) {
@@ -154,19 +155,11 @@ impl BorderMap {
 
     fn insert(&mut self, pos: &Position) {
         self.borders[pos.x][pos.y][pos.dir as usize] = true;
+        self.border_set.insert(*pos);
     }
-
-    fn get_some_starting_point(&self) -> Option<Position> {
-        for x in 0..self.borders.len() {
-            for y in 0..self.borders[x].len() {
-                for dir in 0..4 {
-                    if self.borders[x][y][dir] {
-                        return Some(Position { x, y, dir: Direction::from_int(dir) })
-                    }
-                }
-            }
-        }
-        None
+    
+    fn get_some_starting_point(&mut self) -> Option<Position> {
+        self.border_set.iter().next().copied()
     }
     
     fn pop_next_border(&mut self, pos: &Position) -> Option<(Position, (f32, f32), Option<(f32, f32)>, Turn)> {
@@ -254,7 +247,7 @@ impl BorderMap {
 
         let (mut lefts, mut rights) = (0, 0); 
         let mut pos = origin;
-        while let Some((npos, vertex, corner, turn)) = { /*println!("{:?}", self);*/ self.pop_next_border(&pos)} {
+        while let Some((npos, vertex, corner, turn)) = self.pop_next_border(&pos) {
             if let Some(corner) = corner {
                 vertices.push((corner.0, corner.1));
             }
@@ -369,19 +362,24 @@ fn finish_polygons(polygons: HashMap<(u8, u8, u8), Vec<RawPolygon>>) -> Vec<Poly
 }
 
 pub fn load_polygons(path: &str) -> Vec<Polygon> {
+    let before = std::time::Instant::now();
     let mut borders = BorderMap::load(path);
+    println!("Loaded in {}ms", before.elapsed().as_millis());
+
     let mut raw_polys: HashMap<(u8, u8, u8), Vec<RawPolygon>> = HashMap::new();
 
-    let time_before = std::time::Instant::now();
+    let before = std::time::Instant::now();
     while let Some((poly, color)) = borders.pop_polygon() {
         match raw_polys.get_mut(&color) {
             Some(vec) => vec.push(poly),
             None => { raw_polys.insert(color, vec![poly]); },
         }
-        //break
     }
+    println!("Found all polygons in {}ms", before.elapsed().as_millis());
 
-    println!("Finished in {}ms", time_before.elapsed().as_millis());
+    let before = std::time::Instant::now();
+    let res = finish_polygons(raw_polys);
+    println!("Finished polygons in {}ms", before.elapsed().as_millis());
 
-    finish_polygons(raw_polys)
+    res
 }
