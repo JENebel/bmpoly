@@ -7,11 +7,10 @@ use bevy::prelude::*;
 use bevy::render::mesh::{self, PrimitiveTopology};
 
 const FILL: bool = true;
-const OUTLINE: bool = true;
+const OUTLINE: bool = false;
 const VERTICES: bool = false;
 
 fn main() {
-    //std::hint::black_box(load_polygons("assets/provinces.bmp"));
     App::new()
         .insert_resource(Msaa::Sample4)
         .add_plugins((DefaultPlugins, PanCamPlugin::default()))
