@@ -5,6 +5,7 @@ use bevy::window::PrimaryWindow;
 use bevy_mod_raycast::immediate::{Raycast, RaycastSettings, RaycastVisibility};
 use bevy_mod_raycast::primitives::Ray3d;
 use bevy_pancam::{PanCam, PanCamPlugin};
+use bevy_polyline2d::{LinePlacement, Polyline2d};
 use bmpoly::polygon::load_polygons;
 use bmpoly::eu4::color_polys;
 
@@ -18,12 +19,12 @@ const VERTICES: bool = false;
 #[derive(Clone)]
 struct RenderedPoly {
     original_color: Color,
-    mesh: Handle<Mesh>,
+    _mesh: Handle<Mesh>,
     material: Handle<ColorMaterial>,
-    entity_id: Entity,
+    _entity_id: Entity,
 
     border_id: Entity,
-    border_mesh: Handle<Mesh>,
+    _border_mesh: Handle<Mesh>,
     border_material: Handle<ColorMaterial>,
 }
 
@@ -40,11 +41,11 @@ impl RenderedPoly {
     ) -> Self {
         Self {
             original_color,
-            mesh,
+            _mesh: mesh,
             material,
-            entity_id,
+            _entity_id: entity_id,
             border_id,
-            border_mesh,
+            _border_mesh: border_mesh,
             border_material,
         }
     }
@@ -91,7 +92,7 @@ fn setup (
     mut poly_map: ResMut<PolyMap>,
 ) {
     let before = std::time::Instant::now();
-    let mut polys = load_polygons("assets/provinces.bmp");
+    let mut polys = load_polygons("assets/dktst.bmp");
 
     color_polys(&mut polys);
 
@@ -128,7 +129,13 @@ fn setup (
         };
 
         let (border_mesh, border_material, border_id) = {
-            let mesh = bevy_polyline2d::Polyline2d::new_closed(&poly.border_vertices, 0.2);
+            let polyline = Polyline2d {
+                path: poly.border_vertices.clone(),
+                closed: true,
+                width: 0.1,
+                line_placement: LinePlacement::LeftOf,
+            };
+            let mesh = polyline.make_mesh();
 
             let mat = materials.add(Color::GRAY.into());
             let mesh = meshes.add(Mesh::from(mesh));

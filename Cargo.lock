@@ -805,7 +805,7 @@ dependencies = [
 [[package]]
 name = "bevy_polyline2d"
 version = "0.1.0"
-source = "git+https://github.com/JENebel/bevy_2d_polyline.git#b7e154655892d18e946b32d36edb72b82524fdaf"
+source = "git+https://github.com/JENebel/bevy_2d_polyline.git#bf1a472abe6bfcceed677a95c2be1ce2d413fe0a"
 dependencies = [
  "bevy",
  "bevy_pancam",
