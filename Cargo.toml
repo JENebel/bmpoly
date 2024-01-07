@@ -3,9 +3,6 @@ name = "bmpoly"
 version = "0.1.0"
 edition = "2021"
 
-[target.x86_64-pc-windows-msvc]
-linker = "rust-lld.exe"
-
 [profile.dev]
 opt-level = 0
 
@@ -17,4 +14,6 @@ bmp = "0.5.0"
 bevy = { version = "0.12.1", features = ["dynamic_linking"] }
 earcutr = "0.4.3"
 fastrand = "2.0.1"
-bevy_pancam = "*"
+bevy_pancam = "0.10.0"
+bevy_mod_raycast = "0.16.0"
+bevy_polyline2d = { git = "https://github.com/JENebel/bevy_2d_polyline.git" }

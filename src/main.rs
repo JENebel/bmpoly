@@ -1,36 +1,107 @@
-mod polygon;
+use std::collections::HashMap;
+
 use bevy::sprite::MaterialMesh2dBundle;
+use bevy::window::PrimaryWindow;
+use bevy_mod_raycast::immediate::{Raycast, RaycastSettings, RaycastVisibility};
+use bevy_mod_raycast::primitives::Ray3d;
 use bevy_pancam::{PanCam, PanCamPlugin};
-use polygon::load_polygons;
+use bmpoly::polygon::load_polygons;
+use bmpoly::eu4::color_polys;
 
 use bevy::prelude::*;
 use bevy::render::mesh::{self, PrimitiveTopology};
 
-const FILL: bool = true;
-const OUTLINE: bool = false;
+const FILL: Visibility = Visibility::Visible;
+const OUTLINE: Visibility = Visibility::Visible;
 const VERTICES: bool = false;
+
+#[derive(Clone)]
+struct RenderedPoly {
+    original_color: Color,
+    mesh: Handle<Mesh>,
+    material: Handle<ColorMaterial>,
+    entity_id: Entity,
+
+    border_id: Entity,
+    border_mesh: Handle<Mesh>,
+    border_material: Handle<ColorMaterial>,
+}
+
+
+impl RenderedPoly {
+    fn new(
+        original_color: Color,
+        mesh: Handle<Mesh>,
+        material: Handle<ColorMaterial>,
+        entity_id: Entity,
+        border_id: Entity,
+        border_mesh: Handle<Mesh>,
+        border_material: Handle<ColorMaterial>,
+    ) -> Self {
+        Self {
+            original_color,
+            mesh,
+            material,
+            entity_id,
+            border_id,
+            border_mesh,
+            border_material,
+        }
+    }
+}
+
+#[derive(Resource)]
+struct PolyMap {
+    map: HashMap<Entity, RenderedPoly>,
+}
+
+impl PolyMap {
+    fn get(&self, id: &Entity) -> Option<RenderedPoly> {
+        self.map.get(id).map(|rp| rp.clone())
+    }
+}
+
+#[derive(Resource)]
+struct Selected {
+    rp: Option<RenderedPoly>,
+}
 
 fn main() {
     App::new()
         .insert_resource(Msaa::Sample4)
+        .insert_resource(PolyMap {
+            map: HashMap::new(),
+        })
+        .insert_resource(Selected {
+            rp: None,
+        })
         .add_plugins((DefaultPlugins, PanCamPlugin::default()))
         .add_systems(Startup, setup)
+        .add_systems(Update, click_system)
         .run();
 }
+
+#[derive(Component)]
+struct PolyMesh;
 
 fn setup (
     mut commands: Commands, 
     mut meshes: ResMut<Assets<Mesh>>, 
     mut materials: ResMut<Assets<ColorMaterial>>,
+    mut poly_map: ResMut<PolyMap>,
 ) {
     let before = std::time::Instant::now();
-    let polys = load_polygons("assets/provinces.bmp");
+    let mut polys = load_polygons("assets/provinces.bmp");
+
+    color_polys(&mut polys);
 
     let mut vertices = 0;
 
     let before_meshes = std::time::Instant::now();
-    for poly in polys {
-        if FILL {
+    for poly in polys.into_iter() {
+        let color = Color::rgb(poly.source_color.0 as f32 / 255., poly.source_color.1 as f32 / 255., poly.source_color.2 as f32 / 255.);
+        
+        let (id, mat, mesh) = {
             let mut mesh = Mesh::new(PrimitiveTopology::TriangleList);
             mesh.insert_attribute(
                 Mesh::ATTRIBUTE_POSITION,
@@ -41,34 +112,46 @@ fn setup (
             mesh.duplicate_vertices();
             mesh.compute_flat_normals();
 
-            let mat = materials.add(Color::rgb(poly.color.0, poly.color.1, poly.color.2).into());
-            commands.spawn(MaterialMesh2dBundle {
-                mesh: meshes.add(Mesh::from(mesh)).into(),
-                material: mat,
-                ..default()
-            });
-        }
+            let mat = materials.add(color.into());
+            let mesh = meshes.add(Mesh::from(mesh));
+            let id = commands.spawn((
+                MaterialMesh2dBundle {
+                    mesh: mesh.clone().into(),
+                    material: mat.clone(),
+                    visibility: FILL,
+                    ..default()
+                },
+                PolyMesh {},
+            )).id();
 
-        if OUTLINE {
-            let mut mesh = Mesh::new(PrimitiveTopology::LineStrip);
-            mesh.insert_attribute(
-                Mesh::ATTRIBUTE_POSITION,
-                poly.border_vertices.clone(),
-            );
-            let mut indices: Vec<u32> = (0..poly.border_vertices.len() as u32).collect();
-            indices.push(0);
-            mesh.set_indices(Some(mesh::Indices::U32(indices)));
-            if FILL == false { vertices += poly.border_vertices.len() }
-            mesh.duplicate_vertices();
+            (id, mat, mesh)
+        };
+
+        let (border_mesh, border_material, border_id) = {
+            let mesh = bevy_polyline2d::Polyline2d::new_closed(&poly.border_vertices, 0.2);
 
             let mat = materials.add(Color::GRAY.into());
-            commands.spawn(MaterialMesh2dBundle {
-                mesh: meshes.add(Mesh::from(mesh)).into(),
-                material: mat,
+            let mesh = meshes.add(Mesh::from(mesh));
+            let id = commands.spawn(MaterialMesh2dBundle {
+                mesh: mesh.clone().into(),
+                material: mat.clone(),
                 transform: Transform::from_translation(Vec3::new(0.0, 0.0, 1.0)),
+                visibility: OUTLINE,
                 ..default()
-            });
-        }
+            }).id();
+
+            (mesh, mat, id)
+        };
+
+        poly_map.map.insert(id, RenderedPoly::new(
+            color,
+            mesh,
+            mat,
+            id,
+            border_id,
+            border_mesh,
+            border_material,
+        ));
 
         if VERTICES {
             for vertex in poly.border_vertices {
@@ -99,5 +182,76 @@ fn setup (
     });
 
     commands.spawn(Camera2dBundle::default())
-    .insert(PanCam::default());
+    .insert(PanCam {
+        grab_buttons: vec![MouseButton::Middle],
+        ..default()
+    });
+}
+
+fn click_system(
+    buttons: Res<Input<MouseButton>>,
+    q_window: Query<&Window, With<PrimaryWindow>>,
+    // query to get camera transform
+    q_camera: Query<(&Camera, &GlobalTransform)>,
+    q_poly_mesh: Query<With<PolyMesh>>,
+
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    poly_map: ResMut<PolyMap>,
+    mut selected: ResMut<Selected>,
+    mut raycast: Raycast,
+    mut commands: Commands,
+) {
+    // If mouse button clicked
+    if !buttons.just_released(MouseButton::Left) {
+        return;
+    }
+
+    // get the camera info and transform
+    // assuming there is exactly one main camera entity, so Query::single() is OK
+    let (camera, camera_transform) = q_camera.single();
+
+    // There is only one primary window, so we can similarly get it from the query:
+    let window = q_window.single();
+
+    // check if the cursor is inside the window and get its position
+    // then, ask bevy to convert into world coordinates, and truncate to discard Z
+    let loc = window.cursor_position()
+        .and_then(|cursor| camera.viewport_to_world(camera_transform, cursor))
+        .map(|ray| ray.origin.truncate()).unwrap();
+
+    let ray = Ray3d::new(Vec3::new(loc.x, loc.y, 100.), Vec3::new(0., 0., -1.));
+    let hits = raycast.cast_ray(ray, 
+        &RaycastSettings::default()
+            .with_visibility(RaycastVisibility::MustBeVisibleAndInView)
+            .always_early_exit()
+            .with_filter(&|e| q_poly_mesh.contains(e))
+        );
+
+    if let Some(rp) = &selected.rp {
+        let border_mat = materials.get_mut(&rp.border_material).unwrap();
+        border_mat.color = Color::GRAY;
+        let mut entity = commands.entity(rp.border_id);
+
+        let fill_mat = materials.get_mut(&rp.material).unwrap();
+        fill_mat.color = rp.original_color;
+
+        entity.insert(OUTLINE);
+        entity.insert(Transform::from_translation(Vec3::new(0., 0., 1.)));
+    }
+
+    if let Some(hit) = hits.get(0).map(|h| h.0) {
+        if let Some(rp) = poly_map.get(&hit) {
+            let border_mat = materials.get_mut(&rp.border_material).unwrap();
+            border_mat.color = Color::RED;
+            let mut entity = commands.entity(rp.border_id);
+
+            let fill_mat = materials.get_mut(&rp.material).unwrap();
+            fill_mat.color = rp.original_color * 0.75;
+
+            entity.insert(Visibility::Visible);
+            entity.insert(Transform::from_translation(Vec3::new(0., 0., 2.)));
+
+            selected.rp = Some(rp);
+        }
+    }
 }

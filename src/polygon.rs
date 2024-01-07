@@ -1,12 +1,13 @@
+#[derive(Debug, Clone)]
 pub struct Polygon {
-    pub color: (f32, f32, f32),
+    pub source_color: (u8, u8, u8),
     pub vertices: Vec<[f32; 3]>,
     pub border_vertices: Vec<[f32; 3]>,
     pub indicies: Vec<u32>,
 }
 
 impl Polygon {
-    fn new(color: (f32, f32, f32), raw: RawPolygon) -> Polygon {
+    fn new(color: (u8, u8, u8), raw: RawPolygon) -> Polygon {
         let mut raw_verticies = vec![raw.verticies.iter().map(|(x, y)| vec![*x, *y]).collect::<Vec<_>>()];
 
         for hole in raw.holes {
@@ -24,7 +25,7 @@ impl Polygon {
         Polygon {
             vertices: verticies,
             border_vertices: raw.verticies.iter().map(|(x, y)| [*x, *y, 0.0]).collect(),
-            color,
+            source_color: color,
             indicies: triangles.into_iter().map(|i| i as u32).collect()
         }
     }
@@ -41,6 +42,7 @@ enum Direction {
 use std::collections::{HashMap, VecDeque, HashSet};
 
 use Direction::*;
+use bmp::Image;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 struct Position {
@@ -292,9 +294,7 @@ impl BorderMap {
         return Some((RawPolygon { is_hole, verticies: vertices, point_inside: origin.move_fwd(dims), holes: Vec::new() }, color));
     }
 
-    fn load(path: &str) -> Self {
-        let img = bmp::open(path).unwrap();
-    
+    fn load(img: Image) -> Self {
         println!("Image dimensions: {}x{}", img.get_width(), img.get_height());
 
         let (width, height) = (img.get_width(), img.get_height());
@@ -374,7 +374,7 @@ fn finish_polygons(polygons: HashMap<(u8, u8, u8), Vec<RawPolygon>>) -> Vec<Poly
         }
 
         for poly in non_holes {
-            finished_polygons.push(Polygon::new((color.0 as f32 / 255.0, color.1 as f32 / 255.0, color.2 as f32 / 255.0), poly));
+            finished_polygons.push(Polygon::new((color.0, color.1, color.2), poly));
         }
     }
 
@@ -383,7 +383,8 @@ fn finish_polygons(polygons: HashMap<(u8, u8, u8), Vec<RawPolygon>>) -> Vec<Poly
 
 pub fn load_polygons(path: &str) -> Vec<Polygon> {
     let before = std::time::Instant::now();
-    let mut borders = BorderMap::load(path);
+    let img = bmp::open(path).unwrap();
+    let mut borders = BorderMap::load(img);
     println!("Loaded in {}ms", before.elapsed().as_millis());
 
     let mut raw_polys: HashMap<(u8, u8, u8), Vec<RawPolygon>> = HashMap::new();
