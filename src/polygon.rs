@@ -281,7 +281,7 @@ impl BorderMap {
         }
 
         let is_hole = rights > lefts;
-        if is_hole { vertices.reverse() }
+        //if is_hole { vertices.reverse() }
         let dims = (self.borders.len(), self.borders[0].len());
         return Some((RawPolygon { is_hole, verticies: vertices, point_inside: origin.move_fwd(dims), holes: Vec::new() }, color));
     }

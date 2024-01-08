@@ -288,15 +288,19 @@ fn click_system(
 
 fn screen_print_text(
     time: Res<Time>,
-    query: Query<&ViewVisibility, With<Mesh2dHandle>>
+    query_e: Query<&ViewVisibility, With<Mesh2dHandle>>,
+    query_scale: Query<&OrthographicProjection, With<Camera>>,
 ) {
     let current_time = time.elapsed_seconds_f64();
     let at_interval = |t: f64| current_time % t < time.delta_seconds_f64();
     if at_interval(0.1) {
         let last_fps = 1.0 / time.delta_seconds();
         screen_print!(col: Color::RED, "FPS: {last_fps:.0}");
+
+        let scale = query_scale.single().scale;
+        screen_print!(col: Color::RED, "Scale: {}", scale);
     }
     if at_interval(0.25) {
-        screen_print!("Entites: {}", query.iter().filter(|e| ***e).count());
+        screen_print!(col: Color::RED, "Entites: {}", query_e.iter().filter(|e| ***e).count());
     }
 }
