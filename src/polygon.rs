@@ -2,32 +2,24 @@
 pub struct Polygon {
     pub source_color: (u8, u8, u8),
     pub vertices: Vec<[f32; 3]>,
-    pub border_vertices: Vec<[f32; 3]>,
+    pub border_vertices: Vec<Vec<[f32; 3]>>,
     pub indicies: Vec<u32>,
 }
 
 impl Polygon {
-    fn new(color: (u8, u8, u8), raw: RawPolygon) -> Polygon {
-        let mut raw_verticies = vec![raw.verticies.iter().map(|(x, y)| vec![*x, *y]).collect::<Vec<_>>()];
-
-        for hole in raw.holes {
-            raw_verticies.push(hole.verticies.iter().map(|(x, y)| vec![*x, *y]).collect::<Vec<_>>());
-        }
-
-        let (vertices, holes, dimensions) = earcutr::flatten(&raw_verticies);
-        let triangles = earcutr::earcut(&vertices, &holes, dimensions).unwrap();
-
-        let verticies: Vec<[f32; 3]> = vertices.chunks(2).map(|chunk| [chunk[0], chunk[1], 0.0]).collect();
-
-        let mut edge_indicies: Vec<u32> = (0..verticies.len() as u32).collect();
-        edge_indicies.push(0);
-
-        Polygon {
-            vertices: verticies,
-            border_vertices: raw.verticies.iter().map(|(x, y)| [*x, *y, 0.0]).collect(),
+    fn new(color: (u8, u8, u8)) -> Self {
+        Self {
             source_color: color,
-            indicies: triangles.into_iter().map(|i| i as u32).collect()
+            vertices: Vec::new(),
+            border_vertices: Vec::new(),
+            indicies: Vec::new(),
         }
+    }
+
+    fn extend(&mut self, other: Polygon) {
+        let offset = self.vertices.len() as u32;
+        self.vertices.extend(other.vertices);
+        self.indicies.extend(other.indicies.into_iter().map(|i| i + offset));
     }
 }
 
@@ -289,7 +281,7 @@ impl BorderMap {
         }
 
         let is_hole = rights > lefts;
-        //if is_hole { vertices.reverse() }
+        if is_hole { vertices.reverse() }
         let dims = (self.borders.len(), self.borders[0].len());
         return Some((RawPolygon { is_hole, verticies: vertices, point_inside: origin.move_fwd(dims), holes: Vec::new() }, color));
     }
@@ -346,6 +338,25 @@ impl RawPolygon {
         }
         return c;
     }
+
+    fn border_vertices(&self) -> Vec<[f32; 3]> {
+        self.verticies.iter().map(|(x, y)| [*x, *y, 0.0]).collect()
+    }
+
+    fn vertices_indices(&self) -> (Vec<[f32; 3]>, Vec<u32>) {
+        let mut raw_verticies = vec![self.verticies.iter().map(|(x, y)| vec![*x, *y]).collect::<Vec<_>>()];
+
+        for hole in self.holes.iter() {
+            raw_verticies.push(hole.verticies.iter().map(|(x, y)| vec![*x, *y]).collect::<Vec<_>>());
+        }
+
+        let (vertices, holes, dimensions) = earcutr::flatten(&raw_verticies);
+        let triangles = earcutr::earcut(&vertices, &holes, dimensions).unwrap();
+
+        let verticies: Vec<[f32; 3]> = vertices.chunks(2).map(|chunk| [chunk[0], chunk[1], 0.0]).collect();
+
+        (verticies, triangles.into_iter().map(|i| i as u32).collect())
+    }
 }
 
 fn finish_polygons(polygons: HashMap<(u8, u8, u8), Vec<RawPolygon>>) -> Vec<Polygon> {
@@ -357,11 +368,19 @@ fn finish_polygons(polygons: HashMap<(u8, u8, u8), Vec<RawPolygon>>) -> Vec<Poly
 
         //println!("Finishing polygon: {:?}", color);
 
+        let mut polygon = Polygon {
+            source_color: color,
+            vertices: Vec::new(),
+            border_vertices: Vec::new(),
+            indicies: Vec::new(),
+        };
+
         for hole in holes {
             let mut found = false;
             for non_hole in &mut non_holes {
                 let point_in_hole = (hole.point_inside.unwrap().x as f32, hole.point_inside.unwrap().y as f32);
                 if non_hole.is_inside(point_in_hole) {
+                    polygon.border_vertices.push(hole.border_vertices());
                     non_hole.holes.push(hole);
                     found = true;
                     //println!("Found hole");
@@ -374,16 +393,26 @@ fn finish_polygons(polygons: HashMap<(u8, u8, u8), Vec<RawPolygon>>) -> Vec<Poly
         }
 
         for poly in non_holes {
-            finished_polygons.push(Polygon::new((color.0, color.1, color.2), poly));
+            let (vertices, indices) = poly.vertices_indices();
+
+            let vertices_before = polygon.vertices.len();
+            polygon.vertices.extend_from_slice(&vertices);
+            polygon.indicies.extend(indices.into_iter().map(|i| i + vertices_before as u32));
+
+
+            polygon.border_vertices.push(poly.border_vertices());
+            //finished_polygons.push(Polygon::new((color.0, color.1, color.2), poly));
+            //break;
         }
+
+        finished_polygons.push(polygon);
     }
 
     finished_polygons
 }
 
-pub fn load_polygons(path: &str) -> Vec<Polygon> {
+pub fn load_polygons(img: Image) -> Vec<Polygon> {
     let before = std::time::Instant::now();
-    let img = bmp::open(path).unwrap();
     let mut borders = BorderMap::load(img);
     println!("Loaded in {}ms", before.elapsed().as_millis());
 

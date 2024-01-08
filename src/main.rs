@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 
-use bevy::sprite::MaterialMesh2dBundle;
+use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
 use bevy::window::PrimaryWindow;
 use bevy_mod_raycast::immediate::{Raycast, RaycastSettings, RaycastVisibility};
 use bevy_mod_raycast::primitives::Ray3d;
 use bevy_pancam::{PanCam, PanCamPlugin};
-use bevy_polyline2d::{LinePlacement, Polyline2d};
+use bevy_polyline2d::*;
 use bmpoly::polygon::load_polygons;
 use bmpoly::eu4::color_polys;
+use bevy_debug_text_overlay::{screen_print, OverlayPlugin};
 
 use bevy::prelude::*;
 use bevy::render::mesh::{self, PrimitiveTopology};
@@ -23,11 +24,9 @@ struct RenderedPoly {
     material: Handle<ColorMaterial>,
     _entity_id: Entity,
 
-    border_id: Entity,
-    _border_mesh: Handle<Mesh>,
+    border_ids: Vec<Entity>,
     border_material: Handle<ColorMaterial>,
 }
-
 
 impl RenderedPoly {
     fn new(
@@ -35,8 +34,7 @@ impl RenderedPoly {
         mesh: Handle<Mesh>,
         material: Handle<ColorMaterial>,
         entity_id: Entity,
-        border_id: Entity,
-        border_mesh: Handle<Mesh>,
+        border_ids: Vec<Entity>,
         border_material: Handle<ColorMaterial>,
     ) -> Self {
         Self {
@@ -44,8 +42,7 @@ impl RenderedPoly {
             _mesh: mesh,
             material,
             _entity_id: entity_id,
-            border_id,
-            _border_mesh: border_mesh,
+            border_ids,
             border_material,
         }
     }
@@ -65,6 +62,7 @@ impl PolyMap {
 #[derive(Resource)]
 struct Selected {
     rp: Option<RenderedPoly>,
+    border: Option<Vec<Entity>>
 }
 
 fn main() {
@@ -75,8 +73,13 @@ fn main() {
         })
         .insert_resource(Selected {
             rp: None,
+            border: None,
         })
-        .add_plugins((DefaultPlugins, PanCamPlugin::default()))
+        .add_plugins((DefaultPlugins, PanCamPlugin::default(), Polyline2dPlugin))
+
+        .add_plugins(OverlayPlugin { font_size: 23.0, ..default() })
+        .add_systems(Update, screen_print_text)
+
         .add_systems(Startup, setup)
         .add_systems(Update, click_system)
         .run();
@@ -92,7 +95,11 @@ fn setup (
     mut poly_map: ResMut<PolyMap>,
 ) {
     let before = std::time::Instant::now();
-    let mut polys = load_polygons("assets/dktst.bmp");
+    let img = bmp::open("assets/provinces.bmp").unwrap();
+    let (width, height) = (img.get_width(), img.get_height());
+    let mut polys = load_polygons(img);
+
+    let mut total_entities = 0;
 
     color_polys(&mut polys);
 
@@ -124,61 +131,69 @@ fn setup (
                 },
                 PolyMesh {},
             )).id();
+            total_entities += 1;
 
             (id, mat, mesh)
         };
 
-        let (border_mesh, border_material, border_id) = {
-            let polyline = Polyline2d {
-                path: poly.border_vertices.clone(),
-                closed: true,
-                width: 0.1,
-                line_placement: LinePlacement::LeftOf,
-            };
-            let mesh = polyline.make_mesh();
+        let mut border_ids = Vec::new();
 
-            let mat = materials.add(Color::GRAY.into());
-            let mesh = meshes.add(Mesh::from(mesh));
-            let id = commands.spawn(MaterialMesh2dBundle {
-                mesh: mesh.clone().into(),
-                material: mat.clone(),
-                transform: Transform::from_translation(Vec3::new(0.0, 0.0, 1.0)),
-                visibility: OUTLINE,
-                ..default()
-            }).id();
+        let border_material = materials.add(Color::GRAY.into());
 
-            (mesh, mat, id)
-        };
+        for border in poly.border_vertices.iter() {
+            border_ids.push({
+                let polyline = Polyline2d {
+                    path: border.clone(),
+                    closed: true,
+                    width: 0.1,
+                    line_placement: Align::Left,
+                };
+    
+                total_entities += 1;
+                commands.spawn(Polyline2dBundle {
+                    polyline,
+                    material: border_material.clone(),
+                    transform: Transform::from_translation(Vec3::new(0.0, 0.0, 1.0)),
+                    visibility: OUTLINE,
+                    ..default()
+                }).id()
+            });
+        }
+
+        if VERTICES {
+            for border in poly.border_vertices.iter() {
+                for vertex in border {
+                    commands.spawn(SpriteBundle {
+                        sprite: Sprite {
+                            color: Color::BLUE,
+                            custom_size: Some(Vec2::new(0.3, 0.3)),
+                            ..default()
+                        },
+                        transform: Transform::from_translation(Vec3::new(vertex[0], vertex[1], 2.)),
+                        ..default()
+                    });
+                    total_entities += 1;
+                }
+            }
+        }
 
         poly_map.map.insert(id, RenderedPoly::new(
             color,
             mesh,
             mat,
             id,
-            border_id,
-            border_mesh,
+            border_ids,
             border_material,
         ));
 
-        if VERTICES {
-            for vertex in poly.border_vertices {
-                commands.spawn(SpriteBundle {
-                    sprite: Sprite {
-                        color: Color::RED,
-                        custom_size: Some(Vec2::new(0.3, 0.3)),
-                        ..default()
-                    },
-                    transform: Transform::from_translation(Vec3::new(vertex[0], vertex[1], 2.)),
-                    ..default()
-                });
-            }
-        }
+        
     }
 
     println!("Created meshes in {}ms", before_meshes.elapsed().as_millis());
 
     println!("Total time: {}ms", before.elapsed().as_millis());
     println!("Total vertices: {}", vertices);
+    println!("Total entities: {}", total_entities);
     
     commands.spawn(DirectionalLightBundle {
         directional_light: DirectionalLight {
@@ -188,7 +203,14 @@ fn setup (
         ..default()
     });
 
-    commands.spawn(Camera2dBundle::default())
+    commands.spawn(Camera2dBundle {
+        transform: Transform::from_translation(Vec3::new(width as f32 / 1.9, height as f32 / 1.3, 1000.)),
+        projection: OrthographicProjection {
+            scale: 0.5,
+            ..default()
+        },
+        ..default()
+    })
     .insert(PanCam {
         grab_buttons: vec![MouseButton::Middle],
         ..default()
@@ -208,6 +230,25 @@ fn click_system(
     mut raycast: Raycast,
     mut commands: Commands,
 ) {
+    // If mouse button clicked
+    if !(buttons.just_released(MouseButton::Left) || buttons.just_released(MouseButton::Right)) {
+        return;
+    }
+
+    if let Some(rp) = &selected.rp {
+        let border_mat = materials.get_mut(&rp.border_material).unwrap();
+        border_mat.color = Color::GRAY;
+        let fill_mat = materials.get_mut(&rp.material).unwrap();
+        fill_mat.color = rp.original_color;
+
+        for border_id in &rp.border_ids {
+            let mut entity = commands.entity(*border_id);
+            entity.insert(OUTLINE);
+        }
+        selected.rp = None;
+        selected.border = None;
+    }
+
     // If mouse button clicked
     if !buttons.just_released(MouseButton::Left) {
         return;
@@ -234,31 +275,28 @@ fn click_system(
             .with_filter(&|e| q_poly_mesh.contains(e))
         );
 
-    if let Some(rp) = &selected.rp {
-        let border_mat = materials.get_mut(&rp.border_material).unwrap();
-        border_mat.color = Color::GRAY;
-        let mut entity = commands.entity(rp.border_id);
-
-        let fill_mat = materials.get_mut(&rp.material).unwrap();
-        fill_mat.color = rp.original_color;
-
-        entity.insert(OUTLINE);
-        entity.insert(Transform::from_translation(Vec3::new(0., 0., 1.)));
-    }
-
     if let Some(hit) = hits.get(0).map(|h| h.0) {
         if let Some(rp) = poly_map.get(&hit) {
             let border_mat = materials.get_mut(&rp.border_material).unwrap();
             border_mat.color = Color::RED;
-            let mut entity = commands.entity(rp.border_id);
-
             let fill_mat = materials.get_mut(&rp.material).unwrap();
             fill_mat.color = rp.original_color * 0.75;
-
-            entity.insert(Visibility::Visible);
-            entity.insert(Transform::from_translation(Vec3::new(0., 0., 2.)));
-
             selected.rp = Some(rp);
         }
+    }
+}
+
+fn screen_print_text(
+    time: Res<Time>,
+    query: Query<&ViewVisibility, With<Mesh2dHandle>>
+) {
+    let current_time = time.elapsed_seconds_f64();
+    let at_interval = |t: f64| current_time % t < time.delta_seconds_f64();
+    if at_interval(0.1) {
+        let last_fps = 1.0 / time.delta_seconds();
+        screen_print!(col: Color::RED, "FPS: {last_fps:.0}");
+    }
+    if at_interval(0.25) {
+        screen_print!("Entites: {}", query.iter().filter(|e| ***e).count());
     }
 }

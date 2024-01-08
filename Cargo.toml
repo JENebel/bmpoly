@@ -16,4 +16,6 @@ earcutr = "0.4.3"
 fastrand = "2.0.1"
 bevy_pancam = "0.10.0"
 bevy_mod_raycast = "0.16.0"
-bevy_polyline2d = { git = "https://github.com/JENebel/bevy_2d_polyline.git" }
+bevy-debug-text-overlay = "7.0.0"
+#bevy_polyline2d = { git = "https://github.com/JENebel/bevy_2d_polyline.git" }
+bevy_polyline2d = { path = "../bevy_polyline2d" }
