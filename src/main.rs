@@ -12,38 +12,45 @@ use bevy_debug_text_overlay::{screen_print, OverlayPlugin};
 
 use bevy::prelude::*;
 use bevy::render::mesh::{self, PrimitiveTopology};
+use bmpoly::*;
 
 const FILL: Visibility = Visibility::Visible;
 const OUTLINE: Visibility = Visibility::Visible;
 const VERTICES: bool = false;
 
+// 70fps to beat
+struct MaterialPlugin;
+impl Plugin for MaterialPlugin {
+    fn build(&self, app: &mut App) {
+        app.world.resource_mut::<Assets<ColorMaterial>>().insert(LAND_MATERIAL_HANDLE, Color::rgb_u8(50, 140, 64).into());
+        app.world.resource_mut::<Assets<ColorMaterial>>().insert(BORDER_MATERIAL_HANDLE, Color::GRAY.into());
+        app.world.resource_mut::<Assets<ColorMaterial>>().insert(SELECTED_BORDER_MATERIAL_HANDLE, Color::RED.into());
+        app.world.resource_mut::<Assets<ColorMaterial>>().insert(SEA_MATERIAL_HANDLE, Color::rgb_u8(80, 252, 252).into());
+
+        app.world.resource_mut::<Assets<ColorMaterial>>().insert(SELECTED_PROV_MATERIAL_HANDLE, Color::rgb_u8(0, 0, 0).into());
+    }
+}
+
 #[derive(Clone)]
 struct RenderedPoly {
-    original_color: Color,
+    base_mat: Handle<ColorMaterial>,
     _mesh: Handle<Mesh>,
-    material: Handle<ColorMaterial>,
-    _entity_id: Entity,
-
+    entity_id: Entity,
     border_ids: Vec<Entity>,
-    border_material: Handle<ColorMaterial>,
 }
 
 impl RenderedPoly {
     fn new(
-        original_color: Color,
+        base_mat: Handle<ColorMaterial>,
         mesh: Handle<Mesh>,
-        material: Handle<ColorMaterial>,
         entity_id: Entity,
         border_ids: Vec<Entity>,
-        border_material: Handle<ColorMaterial>,
     ) -> Self {
         Self {
-            original_color,
+            base_mat,
             _mesh: mesh,
-            material,
-            _entity_id: entity_id,
+            entity_id,
             border_ids,
-            border_material,
         }
     }
 }
@@ -62,7 +69,6 @@ impl PolyMap {
 #[derive(Resource)]
 struct Selected {
     rp: Option<RenderedPoly>,
-    border: Option<Vec<Entity>>
 }
 
 fn main() {
@@ -73,9 +79,8 @@ fn main() {
         })
         .insert_resource(Selected {
             rp: None,
-            border: None,
         })
-        .add_plugins((DefaultPlugins, PanCamPlugin::default(), Polyline2dPlugin))
+        .add_plugins((DefaultPlugins, PanCamPlugin::default(), Polyline2dPlugin, MaterialPlugin))
 
         .add_plugins(OverlayPlugin { font_size: 23.0, ..default() })
         .add_systems(Update, screen_print_text)
@@ -90,8 +95,7 @@ struct PolyMesh;
 
 fn setup (
     mut commands: Commands, 
-    mut meshes: ResMut<Assets<Mesh>>, 
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
     mut poly_map: ResMut<PolyMap>,
 ) {
     let before = std::time::Instant::now();
@@ -107,9 +111,9 @@ fn setup (
 
     let before_meshes = std::time::Instant::now();
     for poly in polys.into_iter() {
-        let color = Color::rgb(poly.source_color.0 as f32 / 255., poly.source_color.1 as f32 / 255., poly.source_color.2 as f32 / 255.);
+        let base_mat = poly.mat_handle.clone();
         
-        let (id, mat, mesh) = {
+        let (id, mesh) = {
             let mut mesh = Mesh::new(PrimitiveTopology::TriangleList);
             mesh.insert_attribute(
                 Mesh::ATTRIBUTE_POSITION,
@@ -120,12 +124,11 @@ fn setup (
             mesh.duplicate_vertices();
             mesh.compute_flat_normals();
 
-            let mat = materials.add(color.into());
             let mesh = meshes.add(Mesh::from(mesh));
             let id = commands.spawn((
                 MaterialMesh2dBundle {
                     mesh: mesh.clone().into(),
-                    material: mat.clone(),
+                    material: base_mat.clone(),
                     visibility: FILL,
                     ..default()
                 },
@@ -133,12 +136,10 @@ fn setup (
             )).id();
             total_entities += 1;
 
-            (id, mat, mesh)
+            (id, mesh)
         };
 
         let mut border_ids = Vec::new();
-
-        let border_material = materials.add(Color::GRAY.into());
 
         for border in poly.border_vertices.iter() {
             border_ids.push({
@@ -152,7 +153,7 @@ fn setup (
                 total_entities += 1;
                 commands.spawn(Polyline2dBundle {
                     polyline,
-                    material: border_material.clone(),
+                    material: BORDER_MATERIAL_HANDLE.clone(),
                     transform: Transform::from_translation(Vec3::new(0.0, 0.0, 1.0)),
                     visibility: OUTLINE,
                     ..default()
@@ -178,12 +179,10 @@ fn setup (
         }
 
         poly_map.map.insert(id, RenderedPoly::new(
-            color,
+            base_mat,
             mesh,
-            mat,
             id,
             border_ids,
-            border_material,
         ));
 
         
@@ -236,17 +235,14 @@ fn click_system(
     }
 
     if let Some(rp) = &selected.rp {
-        let border_mat = materials.get_mut(&rp.border_material).unwrap();
-        border_mat.color = Color::GRAY;
-        let fill_mat = materials.get_mut(&rp.material).unwrap();
-        fill_mat.color = rp.original_color;
-
+        let mut entity = commands.entity(rp.entity_id);
+        entity.insert(rp.base_mat.clone());
         for border_id in &rp.border_ids {
             let mut entity = commands.entity(*border_id);
             entity.insert(OUTLINE);
+            entity.insert(BORDER_MATERIAL_HANDLE.clone());
         }
         selected.rp = None;
-        selected.border = None;
     }
 
     // If mouse button clicked
@@ -275,12 +271,21 @@ fn click_system(
             .with_filter(&|e| q_poly_mesh.contains(e))
         );
 
+        // Select
     if let Some(hit) = hits.get(0).map(|h| h.0) {
         if let Some(rp) = poly_map.get(&hit) {
-            let border_mat = materials.get_mut(&rp.border_material).unwrap();
-            border_mat.color = Color::RED;
-            let fill_mat = materials.get_mut(&rp.material).unwrap();
-            fill_mat.color = rp.original_color * 0.75;
+            let mut entity = commands.entity(hit);
+            let base_color = materials.get(&rp.base_mat).unwrap().color;
+            let selected_mat = materials.get_mut(&SELECTED_PROV_MATERIAL_HANDLE).unwrap();
+            selected_mat.color = base_color * 0.75;
+            entity.insert(SELECTED_PROV_MATERIAL_HANDLE.clone());
+
+            for border_id in &rp.border_ids {
+                let mut entity = commands.entity(*border_id);
+                entity.insert(OUTLINE);
+                entity.insert(SELECTED_BORDER_MATERIAL_HANDLE.clone());
+            }
+
             selected.rp = Some(rp);
         }
     }

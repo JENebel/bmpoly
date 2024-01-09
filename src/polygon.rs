@@ -1,5 +1,6 @@
 #[derive(Debug, Clone)]
 pub struct Polygon {
+    pub mat_handle: Handle<ColorMaterial>,
     pub source_color: (u8, u8, u8),
     pub vertices: Vec<[f32; 3]>,
     pub border_vertices: Vec<Vec<[f32; 3]>>,
@@ -9,6 +10,7 @@ pub struct Polygon {
 impl Polygon {
     fn new(color: (u8, u8, u8)) -> Self {
         Self {
+            mat_handle: Handle::default(),
             source_color: color,
             vertices: Vec::new(),
             border_vertices: Vec::new(),
@@ -34,6 +36,7 @@ enum Direction {
 use std::collections::{HashMap, VecDeque, HashSet};
 
 use Direction::*;
+use bevy::{asset::Handle, sprite::ColorMaterial};
 use bmp::Image;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -369,6 +372,7 @@ fn finish_polygons(polygons: HashMap<(u8, u8, u8), Vec<RawPolygon>>) -> Vec<Poly
         //println!("Finishing polygon: {:?}", color);
 
         let mut polygon = Polygon {
+            mat_handle: Handle::default(),
             source_color: color,
             vertices: Vec::new(),
             border_vertices: Vec::new(),

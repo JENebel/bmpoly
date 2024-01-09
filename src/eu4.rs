@@ -1,8 +1,8 @@
 use std::fs;
 
-use bevy::utils::hashbrown::HashMap;
+use bevy::{utils::hashbrown::HashMap, asset::Handle};
 
-use crate::polygon::*;
+use crate::{polygon::*, SEA_MATERIAL_HANDLE, LAND_MATERIAL_HANDLE};
 
 enum TerrainType {
     Sea,
@@ -40,22 +40,22 @@ pub fn color_polys(polys: &mut Vec<Polygon>) {
     }
 
     for poly in polys {
-        let mut color = poly.source_color;
-        if let Some(terrain) = colors.get(&color) {
+        let mut color = Handle::default();
+        if let Some(terrain) = colors.get(&poly.source_color) {
             match terrain {
                 TerrainType::Sea => {
-                    color = (80, 252, 252);
+                    color = SEA_MATERIAL_HANDLE;
                 },
                 TerrainType::Lake => {
-                    color = (80, 252, 252);
+                    color = SEA_MATERIAL_HANDLE;
                 },
                 TerrainType::Land => {
-                    color = (50, 140, 64);
+                    color = LAND_MATERIAL_HANDLE;
                 },
             }
         } else {
-            color = (50, 140, 64);
+            color = LAND_MATERIAL_HANDLE;
         }
-        poly.source_color = color;
+        poly.mat_handle = color;
     }
 }
