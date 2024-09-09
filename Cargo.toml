@@ -11,11 +11,10 @@ opt-level = 2
 
 [dependencies]
 bmp = "0.5.0"
-bevy = { version = "0.12.1", features = ["dynamic_linking"] }
+bevy = { version = "0.14.2" }
 earcutr = "0.4.3"
-fastrand = "2.0.1"
-bevy_pancam = "0.10.0"
-bevy_mod_raycast = "0.16.0"
-bevy-debug-text-overlay = "7.0.0"
-#bevy_polyline2d = { git = "https://github.com/JENebel/bevy_2d_polyline.git" }
-bevy_polyline2d = { path = "../bevy_polyline2d" }
+fastrand = "2.1.1"
+bevy_pancam = "0.14.0"
+bevy_mod_raycast = "0.18.0"
+bevy-debug-text-overlay = { git = "https://github.com/JordanLloydHall/bevy-debug-text-overlay.git", branch = "upgrade_to_bevy_0_14" }
+bevy_polyline2d = { git = "https://github.com/JENebel/bevy_polyline2d.git" }

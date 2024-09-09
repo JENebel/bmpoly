@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
+use bevy::render::render_asset::RenderAssetUsages;
 use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
 use bevy::window::PrimaryWindow;
 use bevy_mod_raycast::immediate::{Raycast, RaycastSettings, RaycastVisibility};
-use bevy_mod_raycast::primitives::Ray3d;
 use bevy_pancam::{PanCam, PanCamPlugin};
-use bevy_polyline2d::*;
+use bevy_polyline2d::{Align, Polyline2dBundle, Polyline2dPlugin};
 use bmpoly::polygon::load_polygons;
 use bmpoly::eu4::color_polys;
 use bevy_debug_text_overlay::{screen_print, OverlayPlugin};
@@ -21,13 +21,13 @@ const VERTICES: bool = false;
 // 70fps to beat
 struct MaterialPlugin;
 impl Plugin for MaterialPlugin {
-    fn build(&self, app: &mut App) {
-        app.world.resource_mut::<Assets<ColorMaterial>>().insert(LAND_MATERIAL_HANDLE, Color::rgb_u8(50, 140, 64).into());
-        app.world.resource_mut::<Assets<ColorMaterial>>().insert(BORDER_MATERIAL_HANDLE, Color::GRAY.into());
-        app.world.resource_mut::<Assets<ColorMaterial>>().insert(SELECTED_BORDER_MATERIAL_HANDLE, Color::RED.into());
-        app.world.resource_mut::<Assets<ColorMaterial>>().insert(SEA_MATERIAL_HANDLE, Color::rgb_u8(80, 252, 252).into());
+    fn build(&self, app: &mut App) { // Color::rgb(50., 140., 64.)
+        app.world_mut().resource_mut::<Assets<ColorMaterial>>().insert(&LAND_MATERIAL_HANDLE, ColorMaterial::from_color(Srgba::new(50./256., 140./256., 64./256., 1.)));
+        app.world_mut().resource_mut::<Assets<ColorMaterial>>().insert(&BORDER_MATERIAL_HANDLE, ColorMaterial::from_color(bevy::color::palettes::basic::GRAY));
+        app.world_mut().resource_mut::<Assets<ColorMaterial>>().insert(&SELECTED_BORDER_MATERIAL_HANDLE, ColorMaterial::from_color(bevy::color::palettes::basic::RED));
+        app.world_mut().resource_mut::<Assets<ColorMaterial>>().insert(&SEA_MATERIAL_HANDLE, ColorMaterial::from_color(Srgba::new(80./256., 252./256., 252./256., 1.)));
 
-        app.world.resource_mut::<Assets<ColorMaterial>>().insert(SELECTED_PROV_MATERIAL_HANDLE, Color::rgb_u8(0, 0, 0).into());
+        app.world_mut().resource_mut::<Assets<ColorMaterial>>().insert(&SELECTED_PROV_MATERIAL_HANDLE, ColorMaterial::from_color(Color::srgb(0., 0., 0.)));
     }
 }
 
@@ -80,8 +80,7 @@ fn main() {
         .insert_resource(Selected {
             rp: None,
         })
-        .add_plugins((DefaultPlugins, PanCamPlugin::default(), Polyline2dPlugin, MaterialPlugin))
-
+        .add_plugins((DefaultPlugins, PanCamPlugin, Polyline2dPlugin, MaterialPlugin))
         .add_plugins(OverlayPlugin { font_size: 23.0, ..default() })
         .add_systems(Update, screen_print_text)
 
@@ -99,7 +98,7 @@ fn setup (
     mut poly_map: ResMut<PolyMap>,
 ) {
     let before = std::time::Instant::now();
-    let img = bmp::open("assets/provinces.bmp").unwrap();
+    let img = bmp::open("assets/dktst.bmp").unwrap();
     let (width, height) = (img.get_width(), img.get_height());
     let mut polys = load_polygons(img);
 
@@ -114,13 +113,11 @@ fn setup (
         let base_mat = poly.mat_handle.clone();
         
         let (id, mesh) = {
-            let mut mesh = Mesh::new(PrimitiveTopology::TriangleList);
-            mesh.insert_attribute(
+            let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default()).with_inserted_attribute(
                 Mesh::ATTRIBUTE_POSITION,
                 poly.vertices.clone(),
-            );
+            ).with_inserted_indices(mesh::Indices::U32(poly.indicies.clone()));
             vertices += poly.vertices.len();
-            mesh.set_indices(Some(mesh::Indices::U32(poly.indicies.clone())));
             mesh.duplicate_vertices();
             mesh.compute_flat_normals();
 
@@ -143,7 +140,7 @@ fn setup (
 
         for border in poly.border_vertices.iter() {
             border_ids.push({
-                let polyline = Polyline2d {
+                let polyline = bevy_polyline2d::Polyline2d {
                     path: border.clone(),
                     closed: true,
                     width: 0.1,
@@ -153,7 +150,7 @@ fn setup (
                 total_entities += 1;
                 commands.spawn(Polyline2dBundle {
                     polyline,
-                    material: BORDER_MATERIAL_HANDLE.clone(),
+                    material: BORDER_MATERIAL_HANDLE,
                     transform: Transform::from_translation(Vec3::new(0.0, 0.0, 1.0)),
                     visibility: OUTLINE,
                     ..default()
@@ -166,7 +163,7 @@ fn setup (
                 for vertex in border {
                     commands.spawn(SpriteBundle {
                         sprite: Sprite {
-                            color: Color::BLUE,
+                            color: bevy::color::palettes::basic::BLUE.into(),
                             custom_size: Some(Vec2::new(0.3, 0.3)),
                             ..default()
                         },
@@ -184,8 +181,6 @@ fn setup (
             id,
             border_ids,
         ));
-
-        
     }
 
     println!("Created meshes in {}ms", before_meshes.elapsed().as_millis());
@@ -211,17 +206,18 @@ fn setup (
         ..default()
     })
     .insert(PanCam {
+        speed: 500.,
         grab_buttons: vec![MouseButton::Middle],
         ..default()
     });
 }
 
 fn click_system(
-    buttons: Res<Input<MouseButton>>,
+    buttons: Res<ButtonInput<MouseButton>>,
     q_window: Query<&Window, With<PrimaryWindow>>,
     // query to get camera transform
     q_camera: Query<(&Camera, &GlobalTransform)>,
-    q_poly_mesh: Query<With<PolyMesh>>,
+    q_poly_mesh: Query<Has<PolyMesh>>,
 
     mut materials: ResMut<Assets<ColorMaterial>>,
     poly_map: ResMut<PolyMap>,
@@ -230,7 +226,7 @@ fn click_system(
     mut commands: Commands,
 ) {
     // If mouse button clicked
-    if !(buttons.just_released(MouseButton::Left) || buttons.just_released(MouseButton::Right)) {
+    if !(buttons.just_pressed(MouseButton::Left) || buttons.just_pressed(MouseButton::Right)) {
         return;
     }
 
@@ -240,13 +236,13 @@ fn click_system(
         for border_id in &rp.border_ids {
             let mut entity = commands.entity(*border_id);
             entity.insert(OUTLINE);
-            entity.insert(BORDER_MATERIAL_HANDLE.clone());
+            entity.insert(BORDER_MATERIAL_HANDLE);
         }
         selected.rp = None;
     }
 
     // If mouse button clicked
-    if !buttons.just_released(MouseButton::Left) {
+    if !buttons.just_pressed(MouseButton::Left) {
         return;
     }
 
@@ -271,13 +267,14 @@ fn click_system(
             .with_filter(&|e| q_poly_mesh.contains(e))
         );
 
-        // Select
+    // Select
     if let Some(hit) = hits.get(0).map(|h| h.0) {
         if let Some(rp) = poly_map.get(&hit) {
             let mut entity = commands.entity(hit);
-            let base_color = materials.get(&rp.base_mat).unwrap().color;
+            let base_color: LinearRgba = materials.get(&rp.base_mat).unwrap().color.into();
+            
             let selected_mat = materials.get_mut(&SELECTED_PROV_MATERIAL_HANDLE).unwrap();
-            selected_mat.color = base_color * 0.75;
+            selected_mat.color = (base_color * 0.75).into();
             entity.insert(SELECTED_PROV_MATERIAL_HANDLE.clone());
 
             for border_id in &rp.border_ids {
@@ -300,12 +297,12 @@ fn screen_print_text(
     let at_interval = |t: f64| current_time % t < time.delta_seconds_f64();
     if at_interval(0.1) {
         let last_fps = 1.0 / time.delta_seconds();
-        screen_print!(col: Color::RED, "FPS: {last_fps:.0}");
+        screen_print!(col: bevy::color::palettes::basic::RED, "FPS: {last_fps:.0}");
 
         let scale = query_scale.single().scale;
-        screen_print!(col: Color::RED, "Scale: {}", scale);
+        screen_print!(col: bevy::color::palettes::basic::RED, "Scale: {}", scale);
     }
     if at_interval(0.25) {
-        screen_print!(col: Color::RED, "Entites: {}", query_e.iter().filter(|e| ***e).count());
+        screen_print!(col: bevy::color::palettes::basic::RED, "Entites: {}", query_e.iter().filter(|e| ***e).count());
     }
 }

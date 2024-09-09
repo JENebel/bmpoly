@@ -1,6 +1,6 @@
 use std::fs;
 
-use bevy::{utils::hashbrown::HashMap, asset::Handle};
+use bevy::utils::hashbrown::HashMap;
 
 use crate::{polygon::*, SEA_MATERIAL_HANDLE, LAND_MATERIAL_HANDLE};
 
@@ -40,7 +40,7 @@ pub fn color_polys(polys: &mut Vec<Polygon>) {
     }
 
     for poly in polys {
-        let mut color = Handle::default();
+        let color;
         if let Some(terrain) = colors.get(&poly.source_color) {
             match terrain {
                 TerrainType::Sea => {
