@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
-use bevy::window::PrimaryWindow;
+use bevy::window::{PresentMode, PrimaryWindow};
 use bevy_mod_raycast::immediate::{Raycast, RaycastSettings, RaycastVisibility};
 use bevy_pancam::{PanCam, PanCamPlugin};
 use bevy_polyline2d::{Align, Polyline2dBundle, Polyline2dPlugin};
@@ -80,7 +80,14 @@ fn main() {
         .insert_resource(Selected {
             rp: None,
         })
-        .add_plugins((DefaultPlugins, PanCamPlugin, Polyline2dPlugin, MaterialPlugin))
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                present_mode: PresentMode::Immediate,
+                ..Default::default()
+            }),
+            ..Default::default()
+        }))
+        .add_plugins((PanCamPlugin, Polyline2dPlugin, MaterialPlugin))
         .add_plugins(OverlayPlugin { font_size: 23.0, ..default() })
         .add_systems(Update, screen_print_text)
 
@@ -98,7 +105,7 @@ fn setup (
     mut poly_map: ResMut<PolyMap>,
 ) {
     let before = std::time::Instant::now();
-    let img = bmp::open("assets/dktst.bmp").unwrap();
+    let img = bmp::open("assets/old_world.bmp").unwrap();
     let (width, height) = (img.get_width(), img.get_height());
     let mut polys = load_polygons(img);
 
@@ -207,7 +214,7 @@ fn setup (
     })
     .insert(PanCam {
         speed: 500.,
-        grab_buttons: vec![MouseButton::Middle],
+        grab_buttons: vec![MouseButton::Right, MouseButton::Middle],
         ..default()
     });
 }
@@ -226,7 +233,7 @@ fn click_system(
     mut commands: Commands,
 ) {
     // If mouse button clicked
-    if !(buttons.just_pressed(MouseButton::Left) || buttons.just_pressed(MouseButton::Right)) {
+    if !buttons.just_pressed(MouseButton::Left) {
         return;
     }
 
